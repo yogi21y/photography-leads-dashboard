@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>בדיקות הדאשבורד</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 0 auto; max-width: 720px; padding: 16px; line-height: 1.5; }
+    #summary { font-size: 1.25rem; font-weight: bold; padding: 12px; border-radius: 6px; }
+    #summary.pass { background: #e3f4e5; color: #14561c; }
+    #summary.fail { background: #fbe5e5; color: #8a1313; }
+    ul { list-style: none; padding: 0; }
+    li { padding: 8px 0; border-bottom: 1px solid #ddd; }
+    li.fail { color: #8a1313; font-weight: bold; }
+    .detail { display: block; font-weight: normal; direction: ltr; text-align: left; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <h1>בדיקות הדאשבורד</h1>
+  <div id="summary"></div>
+  <ul id="results"></ul>
+
+  <script src="logic.js"></script>
+  <script>
+    var L = LeadsLogic;
+    var TEST_KEY = "leads-dashboard-test";
+    var results = [];
+
+    function test(name, body) {
+      try {
+        body();
+        results.push({ name: name, passed: true });
+      } catch (error) {
+        results.push({ name: name, passed: false, detail: error.message });
+      }
+    }
+
+    function assertEqual(actual, expected, label) {
+      var a = JSON.stringify(actual);
+      var e = JSON.stringify(expected);
+      if (a !== e) throw new Error((label ? label + ": " : "") + "expected " + e + ", got " + a);
+    }
+
+    function lead(id, stage, shootType, amount, followUpDate) {
+      return { id: id, name: "לקוח דמה " + id, phone: "050-0000000", shootType: shootType,
+        stage: stage, amount: amount, followUpDate: followUpDate };
+    }
+
+    function ids(leads) {
+      return leads.map(function (item) { return item.id; });
+    }
+
+    function fakeStorage() {
+      var items = {};
+      return {
+        getItem: function (key) { return key in items ? items[key] : null; },
+        setItem: function (key, value) { items[key] = String(value); },
+        removeItem: function (key) { delete items[key]; }
+      };
+    }
+
+    var STILLS = L.SHOOT_TYPES[0];
+    var VIDEO = L.SHOOT_TYPES[1];
+    var BOTH = L.SHOOT_TYPES[2];
+
+    var sample = [
+      lead(1, L.STAGE_NEW, STILLS, 1000, "2026-11-05"),
+      lead(2, L.STAGE_CALL, VIDEO, 2000, "2026-11-01"),
+      lead(3, L.STAGE_QUOTE, BOTH, 3000, "2026-11-06"),
+      lead(4, L.STAGE_CLOSED, STILLS, 4000, "2026-10-01"),
+      lead(5, L.STAGE_CLOSED, VIDEO, 5500, ""),
+      lead(6, L.STAGE_LOST, STILLS, 6000, "2026-10-02")
+    ];
+
+    // --- Spec lists ---
+    test("סוגי הצילום תואמים לאפיון", function () {
+      assertEqual(L.SHOOT_TYPES, ["סטילס", "וידאו", "סטילס ווידאו"]);
+    });
+
+    test("שלבי הטיפול תואמים לאפיון ובאותו סדר", function () {
+      assertEqual(L.STAGES, ["פנייה חדשה", "שיחה עם לקוח", "נשלחה הצעת מחיר", "נסגרה עסקה", "לא התקדמה"]);
+    });
+
+    // --- Add, edit, change stage ---
+    test("הוספת פנייה מוסיפה אותה עם מזהה חדש", function () {
+      var result = L.addLead(sample, { name: "חדש", phone: "050-1111111", shootType: VIDEO, stage: L.STAGE_NEW });
+      assertEqual(result.length, 7);
+      assertEqual(result[6].id, 7);
+      assertEqual(result[6].name, "חדש");
+    });
+
+    test("הוספת פנייה ראשונה לרשימה ריקה", function () {
+      assertEqual(L.addLead([], { name: "ראשון" })[0].id, 1);
+    });
+
+    test("עריכה משנה רק את הפנייה והשדות שנבחרו", function () {
+      var result = L.updateLead(sample, 2, { name: "שם מעודכן", amount: 2500 });
+      assertEqual(result[1].name, "שם מעודכן");
+      assertEqual(result[1].amount, 2500);
+      assertEqual(result[1].phone, sample[1].phone);
+      assertEqual(result[0], sample[0]);
+    });
+
+    test("עריכה לא משנה את מזהה הפנייה", function () {
+      assertEqual(L.updateLead(sample, 2, { id: 99 })[1].id, 2);
+    });
+
+    test("שינוי שלב משנה רק את השלב", function () {
+      var result = L.changeStage(sample, 1, L.STAGE_LOST);
+      assertEqual(result[0].stage, L.STAGE_LOST);
+      assertEqual(result[0].name, sample[0].name);
+      assertEqual(result[1], sample[1]);
+    });
+
+    test("פעולות העריכה לא משנות את הרשימה המקורית", function () {
+      var before = JSON.stringify(sample);
+      L.addLead(sample, { name: "חדש" });
+      L.updateLead(sample, 1, { name: "אחר" });
+      L.changeStage(sample, 1, L.STAGE_LOST);
+      assertEqual(JSON.stringify(sample), before);
+    });
+
+    test("אין פעולת מחיקה של פנייה", function () {
+      var names = Object.keys(L).filter(function (name) { return /delete|remove/i.test(name); });
+      assertEqual(names, []);
+    });
+
+    // --- Validation ---
+    test("פנייה עם שדות החובה בלבד תקינה", function () {
+      assertEqual(L.validateLead({ name: "א", phone: "050", shootType: STILLS, stage: L.STAGE_NEW }), []);
+    });
+
+    test("חסרים שם, טלפון, סוג צילום או שלב: הפנייה נדחית", function () {
+      assertEqual(L.validateLead({ name: "  ", phone: "", shootType: "אחר", stage: "אחר" }),
+        ["name", "phone", "shootType", "stage"]);
+    });
+
+    test("סכום שלילי או לא מספרי נדחה", function () {
+      var base = { name: "א", phone: "050", shootType: STILLS, stage: L.STAGE_NEW };
+      assertEqual(L.validateLead(Object.assign({}, base, { amount: -1 })), ["amount"]);
+      assertEqual(L.validateLead(Object.assign({}, base, { amount: "abc" })), ["amount"]);
+      assertEqual(L.validateLead(Object.assign({}, base, { amount: "" })), []);
+    });
+
+    // --- Filtering ---
+    test("סינון לפי שלב מחזיר רק פניות תואמות", function () {
+      assertEqual(ids(L.filterLeads(sample, { stage: L.STAGE_CLOSED })), [4, 5]);
+    });
+
+    test("סינון לפי סוג צילום מחזיר רק פניות תואמות", function () {
+      assertEqual(ids(L.filterLeads(sample, { shootType: STILLS })), [1, 4, 6]);
+    });
+
+    test("סוג \"סטילס\" לא מחזיר פניות \"סטילס ווידאו\"", function () {
+      assertEqual(ids(L.filterLeads(sample, { shootType: BOTH })), [3]);
+      assertEqual(L.filterLeads(sample, { shootType: STILLS }).indexOf(sample[2]), -1);
+    });
+
+    test("סינון לפי שלב וסוג יחד", function () {
+      assertEqual(ids(L.filterLeads(sample, { stage: L.STAGE_CLOSED, shootType: VIDEO })), [5]);
+    });
+
+    test("ללא בחירה מוחזרות כל הפניות", function () {
+      assertEqual(ids(L.filterLeads(sample, { stage: "", shootType: "" })), [1, 2, 3, 4, 5, 6]);
+    });
+
+    test("סינון ללא התאמה מחזיר רשימה ריקה", function () {
+      assertEqual(L.filterLeads(sample, { stage: L.STAGE_LOST, shootType: BOTH }), []);
+    });
+
+    // --- Summary ---
+    test("הסיכום כולל מספר פניות, עסקאות ושווי משוער", function () {
+      assertEqual(L.computeSummary(sample), { totalLeads: 6, closedDeals: 2, closedValue: 9500 });
+    });
+
+    test("הסיכום לא משתנה בעקבות סינון", function () {
+      var before = L.computeSummary(sample);
+      L.filterLeads(sample, { stage: L.STAGE_NEW, shootType: VIDEO });
+      assertEqual(L.computeSummary(sample), before);
+    });
+
+    test("הסיכום מתעדכן אחרי הוספה", function () {
+      var result = L.addLead(sample, lead(0, L.STAGE_CLOSED, STILLS, 500, ""));
+      assertEqual(L.computeSummary(result), { totalLeads: 7, closedDeals: 3, closedValue: 10000 });
+    });
+
+    test("הסיכום מתעדכן אחרי שינוי שלב", function () {
+      var opened = L.changeStage(sample, 4, L.STAGE_CALL);
+      assertEqual(L.computeSummary(opened), { totalLeads: 6, closedDeals: 1, closedValue: 5500 });
+      var closed = L.changeStage(sample, 1, L.STAGE_CLOSED);
+      assertEqual(L.computeSummary(closed), { totalLeads: 6, closedDeals: 3, closedValue: 10500 });
+    });
+
+    test("הסיכום מתעדכן אחרי עריכת סכום", function () {
+      assertEqual(L.computeSummary(L.updateLead(sample, 4, { amount: 1000 })).closedValue, 6500);
+    });
+
+    test("סכום ריק נספר כ-0, וסכום כמחרוזת מחושב כמספר", function () {
+      var leads = [lead(1, L.STAGE_CLOSED, STILLS, "", ""), lead(2, L.STAGE_CLOSED, STILLS, "1500", ""),
+        lead(3, L.STAGE_CLOSED, STILLS, undefined, "")];
+      assertEqual(L.computeSummary(leads), { totalLeads: 3, closedDeals: 3, closedValue: 1500 });
+    });
+
+    test("סיכום של רשימה ריקה", function () {
+      assertEqual(L.computeSummary([]), { totalLeads: 0, closedDeals: 0, closedValue: 0 });
+    });
+
+    // --- Follow-ups ---
+    test("רשימת החזרה: היום ועבר, ללא עתיד, ללא סגורות ולא התקדמו", function () {
+      assertEqual(ids(L.dueFollowUps(sample, "2026-11-05")), [2, 1]);
+    });
+
+    test("פנייה בלי תאריך לחזרה לא מופיעה", function () {
+      assertEqual(L.dueFollowUps([lead(1, L.STAGE_NEW, STILLS, 0, "")], "2026-11-05"), []);
+      assertEqual(L.dueFollowUps([lead(1, L.STAGE_NEW, STILLS, 0, undefined)], "2026-11-05"), []);
+    });
+
+    test("פנייה יוצאת מרשימת החזרה כשהיא נסגרת", function () {
+      assertEqual(ids(L.dueFollowUps(L.changeStage(sample, 2, L.STAGE_CLOSED), "2026-11-05")), [1]);
+    });
+
+    test("השוואת תאריכים נכונה במעבר חודש ושנה", function () {
+      var leads = [lead(1, L.STAGE_NEW, STILLS, 0, "2026-09-30"), lead(2, L.STAGE_NEW, STILLS, 0, "2027-01-01")];
+      assertEqual(ids(L.dueFollowUps(leads, "2026-10-01")), [1]);
+    });
+
+    test("תאריך מקומי מפורמט עם אפסים מובילים", function () {
+      assertEqual(L.toDateString(new Date(2026, 0, 5)), "2026-01-05");
+      assertEqual(L.toDateString(new Date(2026, 10, 25)), "2026-11-25");
+    });
+
+    // --- Storage ---
+    test("מפתח הבדיקות שונה ממפתח הדאשבורד", function () {
+      if (TEST_KEY === L.STORAGE_KEY) throw new Error("same storage key");
+    });
+
+    test("שמירה וטעינה מחזירות את אותן פניות", function () {
+      var storage = fakeStorage();
+      L.saveLeads(storage, TEST_KEY, sample);
+      assertEqual(L.loadLeads(storage, TEST_KEY), sample);
+    });
+
+    test("טעינה בלי נתונים שמורים מחזירה null", function () {
+      assertEqual(L.loadLeads(fakeStorage(), TEST_KEY), null);
+    });
+
+    test("טעינת נתונים פגומים מחזירה null", function () {
+      var storage = fakeStorage();
+      storage.setItem(TEST_KEY, "{not json");
+      assertEqual(L.loadLeads(storage, TEST_KEY), null);
+      storage.setItem(TEST_KEY, "{\"a\":1}");
+      assertEqual(L.loadLeads(storage, TEST_KEY), null);
+    });
+
+    test("שמירה למפתח הבדיקות לא נוגעת במפתח הדאשבורד", function () {
+      var storage = fakeStorage();
+      storage.setItem(L.STORAGE_KEY, "dashboard-data");
+      L.saveLeads(storage, TEST_KEY, sample);
+      assertEqual(storage.getItem(L.STORAGE_KEY), "dashboard-data");
+    });
+
+    test("שמירה וטעינה ב-localStorage אמיתי, בלי לשנות את נתוני הדאשבורד", function () {
+      var dashboardBefore = localStorage.getItem(L.STORAGE_KEY);
+      try {
+        L.saveLeads(localStorage, TEST_KEY, sample);
+        assertEqual(L.loadLeads(localStorage, TEST_KEY), sample);
+      } finally {
+        localStorage.removeItem(TEST_KEY);
+      }
+      assertEqual(localStorage.getItem(TEST_KEY), null, "test key cleaned");
+      assertEqual(localStorage.getItem(L.STORAGE_KEY), dashboardBefore, "dashboard key");
+    });
+
+    // --- Report ---
+    var failed = results.filter(function (result) { return !result.passed; }).length;
+    var summary = document.getElementById("summary");
+    summary.className = failed ? "fail" : "pass";
+    summary.textContent = "עברו " + (results.length - failed) + " מתוך " + results.length + " בדיקות" +
+      (failed ? " | נכשלו " + failed : "");
+
+    var list = document.getElementById("results");
+    results.forEach(function (result) {
+      var item = document.createElement("li");
+      item.className = result.passed ? "pass" : "fail";
+      item.textContent = (result.passed ? "✓ עבר: " : "✗ נכשל: ") + result.name;
+      if (result.detail) {
+        var detail = document.createElement("span");
+        detail.className = "detail";
+        detail.textContent = result.detail;
+        item.appendChild(detail);
+      }
+      list.appendChild(item);
+    });
+  </script>
+</body>
+</html>
