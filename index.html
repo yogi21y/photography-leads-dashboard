@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ניהול לידים - עסק צילום</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top">
+    <h1>ניהול לידים</h1>
+    <button type="button" id="add-btn" class="btn primary">+ פנייה חדשה</button>
+  </header>
+
+  <p id="storage-warning" class="warning" hidden>הדפדפן לא מאפשר שמירה, ולכן השינויים יאבדו ברענון הדף.</p>
+
+  <main>
+    <section aria-labelledby="summary-title">
+      <h2 id="summary-title" class="sr-only">סיכום</h2>
+      <div class="summary">
+        <div class="stat">
+          <span class="stat-label">מספר פניות</span>
+          <strong id="sum-total" class="stat-value">0</strong>
+        </div>
+        <div class="stat">
+          <span class="stat-label">עסקאות שנסגרו</span>
+          <strong id="sum-closed" class="stat-value">0</strong>
+        </div>
+        <div class="stat">
+          <span class="stat-label">שווי משוער של עסקאות שנסגרו</span>
+          <strong id="sum-value" class="stat-value">0 ₪</strong>
+        </div>
+      </div>
+    </section>
+
+    <section aria-labelledby="due-title" class="panel">
+      <h2 id="due-title">לחזור היום או באיחור</h2>
+      <p id="due-empty" class="empty" hidden>אין פניות שצריך לחזור אליהן.</p>
+      <ul id="due-list" class="due-list"></ul>
+    </section>
+
+    <section aria-labelledby="leads-title">
+      <h2 id="leads-title">כל הפניות</h2>
+      <div class="filters">
+        <label>שלב טיפול
+          <select id="filter-stage"></select>
+        </label>
+        <label>סוג צילום
+          <select id="filter-type"></select>
+        </label>
+      </div>
+      <p id="list-count" class="count"></p>
+      <p id="leads-empty" class="empty" hidden></p>
+      <div id="leads" class="leads"></div>
+    </section>
+  </main>
+
+  <dialog id="lead-dialog" aria-labelledby="form-title">
+    <form id="lead-form" novalidate>
+      <h2 id="form-title">פנייה חדשה</h2>
+
+      <label>שם *
+        <input name="name" type="text" autocomplete="off">
+        <span class="error" data-for="name" hidden></span>
+      </label>
+      <label>טלפון *
+        <input name="phone" type="tel" dir="ltr" autocomplete="off">
+        <span class="error" data-for="phone" hidden></span>
+      </label>
+      <label>סוג צילום *
+        <select name="shootType"></select>
+        <span class="error" data-for="shootType" hidden></span>
+      </label>
+      <label>תיאור העבודה
+        <textarea name="description" rows="2"></textarea>
+      </label>
+      <label>תאריך צילום מבוקש
+        <input name="shootDate" type="date">
+      </label>
+      <label>סכום משוער (₪)
+        <input name="amount" type="text" inputmode="decimal" dir="ltr" autocomplete="off">
+        <span class="error" data-for="amount" hidden></span>
+      </label>
+      <label>שלב טיפול *
+        <select name="stage"></select>
+        <span class="error" data-for="stage" hidden></span>
+      </label>
+      <label>תאריך לחזרה
+        <input name="followUpDate" type="date">
+      </label>
+      <label>הערות
+        <textarea name="notes" rows="3"></textarea>
+      </label>
+
+      <div class="form-actions">
+        <button type="submit" class="btn primary">שמירה</button>
+        <button type="button" id="cancel-btn" class="btn">ביטול</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="logic.js"></script>
+  <script src="demo-data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
