@@ -18,6 +18,14 @@
     <button id="local-btn" class="btn" type="button">פתח פניות מקומיות</button>
   </section>
 
+  <section class="panel weather" aria-labelledby="weather-title">
+    <h2 id="weather-title">תחזית לצילומי חוץ בחיפה</h2>
+    <button id="weather-load" class="btn" type="button">טען תחזית</button>
+    <p id="weather-status" role="status" class="count"></p>
+    <ul id="weather-days" class="weather-days" hidden></ul>
+    <p class="count">מקור התחזית <a href="https://open-meteo.com/">Open-Meteo</a></p>
+  </section>
+
   <div id="dashboard" hidden>
     <header class="top">
       <h1>ניהול לידים</h1>
@@ -119,5 +127,6 @@
   <script src="logic.js"></script>
   <script src="demo-data.js"></script>
   <script src="app.js"></script>
+  <script src="weather.js"></script>
 </body>
 </html>
