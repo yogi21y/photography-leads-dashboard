@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Airtable integration tests</title>
+<h1>Airtable integration tests</h1>
+<p>Serve the project locally over HTTP to run these tests.</p>
+<pre id="result">Running</pre>
+<script>
+  var result = document.getElementById("result");
+  var frame = document.createElement("iframe");
+  frame.hidden = true;
+  frame.src = "index.html";
+  frame.addEventListener("load", async function () {
+    var win = frame.contentWindow;
+    var doc = win.document;
+    var calls = [];
+    var passCount = 0;
+    var oldLeads = localStorage.getItem("leads-dashboard");
+
+    function check(condition, message) {
+      if (!condition) throw new Error(message);
+      passCount += 1;
+    }
+
+    function finishRequest() {
+      return new Promise(function (resolve) {
+        win.setTimeout(resolve, 0);
+      });
+    }
+
+    function submit(token) {
+      doc.getElementById("airtable-token").value = token;
+      doc.getElementById("connection-form").requestSubmit();
+      return finishRequest();
+    }
+
+    win.fetch = async function (url, options) {
+      calls.push({ url: new URL(url), authorization: options.headers.Authorization });
+      if (options.headers.Authorization === "Bearer invalid-test-token") {
+        return { ok: false, status: 401 };
+      }
+      var offset = new URL(url).searchParams.get("offset");
+      var body = offset ? {
+        records: [{ id: "rec2", fields: { Name: "Second page" } }]
+      } : {
+        records: [{ id: "rec1", fields: { Name: "Airtable test lead" } }, { id: "empty", fields: {} }],
+        offset: "page-2"
+      };
+      return { ok: true, json: async function () { return body; } };
+    };
+
+    try {
+      check(doc.getElementById("dashboard").hidden, "Dashboard should wait for connection");
+      await submit("invalid-test-token");
+      check(doc.getElementById("connection-status").textContent.includes("החיבור נכשל"), "Failed connection should explain retry");
+      await submit("valid-test-token");
+      var list = doc.getElementById("leads");
+      check(!doc.getElementById("dashboard").hidden, "Dashboard should open after successful authentication");
+      check(list.textContent.includes("Airtable test lead") && list.textContent.includes("Second page"), "Both pages should be displayed");
+      check(list.querySelectorAll("article").length === 2, "Blank Airtable rows should be omitted");
+      check(calls.length === 3 && calls[2].url.searchParams.get("offset") === "page-2", "Pagination should use Airtable's offset");
+      check(calls[1].url.origin === "https://api.airtable.com" && calls[1].authorization === "Bearer valid-test-token", "Only Airtable should get the token in its authorization header");
+      check(doc.getElementById("airtable-token").value === "" && localStorage.getItem("leads-dashboard") === oldLeads, "Token input should clear and local leads should be untouched");
+      check(doc.getElementById("add-btn").hidden, "Read-only mode should not offer writes");
+      doc.getElementById("refresh-btn").click();
+      await finishRequest();
+      check(calls.length === 5, "Refresh should fetch the latest Airtable records");
+      doc.getElementById("connection-btn").click();
+      check(doc.getElementById("dashboard").hidden && list.children.length === 0, "Disconnect should remove loaded leads from the display");
+      result.textContent = "PASS: " + passCount;
+    } catch (error) {
+      result.textContent = "FAIL: " + error.message;
+    }
+  });
+  document.body.appendChild(frame);
+</script>

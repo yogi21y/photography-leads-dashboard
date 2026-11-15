@@ -12,7 +12,12 @@
     amount: "הסכום חייב להיות מספר שאינו שלילי"
   };
 
+  var AIRTABLE_URL = "https://api.airtable.com/v0/appUGUq8TrYJhQqVm/Leads";
+
   var leads = [];
+  var airtableToken = "";
+  var source = "";
+  var loading = false;
   var editingId = null;
   var storage = getStorage();
 
@@ -134,11 +139,11 @@
     due.forEach(function (lead) {
       var item = el("li", "due-item");
       item.appendChild(el("span", "name", lead.name));
-      item.appendChild(telLink(lead.phone));
+      if (lead.phone) item.appendChild(telLink(lead.phone));
       item.appendChild(el("span", "", "חזרה: " + formatDate(lead.followUpDate)));
       item.appendChild(stageBadge(lead.stage));
       item.appendChild(el("span", "spacer"));
-      item.appendChild(editButton(lead));
+      if (source === "local") item.appendChild(editButton(lead));
       list.appendChild(item);
     });
   }
@@ -150,10 +155,10 @@
     head.appendChild(el("h3", "lead-name", lead.name));
     head.appendChild(stageBadge(lead.stage));
     card.appendChild(head);
-    card.appendChild(telLink(lead.phone));
+    if (lead.phone) card.appendChild(telLink(lead.phone));
 
     var facts = el("dl", "facts");
-    facts.appendChild(fact("סוג צילום", lead.shootType));
+    if (lead.shootType) facts.appendChild(fact("סוג צילום", lead.shootType));
     if (!isBlank(lead.description)) facts.appendChild(fact("עבודה", lead.description));
     if (!isBlank(lead.shootDate)) facts.appendChild(fact("תאריך צילום", formatDate(lead.shootDate)));
     if (!isBlank(lead.amount)) facts.appendChild(fact("סכום משוער", formatMoney(lead.amount)));
@@ -161,10 +166,12 @@
     if (!isBlank(lead.notes)) facts.appendChild(fact("הערות", lead.notes));
     card.appendChild(facts);
 
-    var actions = el("div", "lead-actions");
-    actions.appendChild(stageSelect(lead));
-    actions.appendChild(editButton(lead));
-    card.appendChild(actions);
+    if (source === "local") {
+      var actions = el("div", "lead-actions");
+      actions.appendChild(stageSelect(lead));
+      actions.appendChild(editButton(lead));
+      card.appendChild(actions);
+    }
     return card;
   }
 
@@ -179,7 +186,9 @@
 
     var empty = $("leads-empty");
     empty.hidden = filtered.length > 0;
-    empty.textContent = leads.length === 0 ? "אין פניות עדיין. אפשר להוסיף פנייה חדשה." : "אין פניות התואמות לסינון.";
+    empty.textContent = leads.length === 0
+      ? (source === "local" ? "אין פניות עדיין. אפשר להוסיף פנייה חדשה." : "אין פניות בטבלת Airtable.")
+      : "אין פניות התואמות לסינון.";
     $("list-count").textContent = "מוצגות " + filtered.length + " מתוך " + leads.length + " פניות";
   }
 
@@ -236,14 +245,116 @@
     $("lead-dialog").close();
   }
 
+  function showDashboard(nextSource, nextLeads) {
+    source = nextSource;
+    leads = nextLeads;
+    $("connection").hidden = true;
+    $("dashboard").hidden = false;
+    $("add-btn").hidden = source !== "local";
+    $("refresh-btn").hidden = source !== "airtable";
+    $("storage-warning").hidden = source !== "local" || Boolean(storage);
+    $("data-source").textContent = source === "airtable"
+      ? "מקור הנתונים: Airtable · לקריאה בלבד"
+      : "מקור הנתונים: פניות מקומיות בדפדפן";
+    $("filter-stage").value = "";
+    $("filter-type").value = "";
+    render();
+  }
+
+  async function loadAirtable(token) {
+    var records = [];
+    var offset;
+    do {
+      var url = new URL(AIRTABLE_URL);
+      if (offset) url.searchParams.set("offset", offset);
+      var response = await fetch(url, {
+        headers: { Authorization: "Bearer " + token }
+      });
+      if (!response.ok) throw new Error("Airtable request failed");
+      var data = await response.json();
+      records.push.apply(records, data.records);
+      offset = data.offset;
+    } while (offset);
+
+    return records.filter(function (record) {
+      return !isBlank(record.fields.Name);
+    }).map(function (record) {
+      var fields = record.fields;
+      return {
+        id: record.id,
+        name: fields.Name,
+        phone: fields.Phone,
+        shootType: fields.ShootType,
+        description: fields.Description,
+        shootDate: fields.ShootDate,
+        amount: fields.Amount,
+        stage: fields.Status || "ללא שלב",
+        followUpDate: fields.FollowUpDate,
+        notes: fields.Notes
+      };
+    });
+  }
+
+  async function connect(event) {
+    event.preventDefault();
+    var token = $("airtable-token").value.trim();
+    if (loading || !token) return;
+    var button = $("connection-form").querySelector("button");
+    loading = button.disabled = $("local-btn").disabled = true;
+    $("connection-status").textContent = "טוען פניות מ־Airtable…";
+
+    try {
+      var rows = await loadAirtable(token);
+      airtableToken = token;
+      $("airtable-token").value = "";
+      $("connection-status").textContent = "";
+      showDashboard("airtable", rows);
+    } catch (error) {
+      $("connection-status").textContent = error instanceof TypeError
+        ? "לא ניתן להגיע ל־Airtable כרגע. אפשר לנסות שוב."
+        : "החיבור נכשל. בדוק את הטוקן ואת הגישה לבסיס ונסה שוב.";
+    } finally {
+      loading = button.disabled = $("local-btn").disabled = false;
+    }
+  }
+
+  async function refreshAirtable() {
+    var button = $("refresh-btn");
+    if (loading || !airtableToken) return;
+    loading = button.disabled = $("connection-btn").disabled = true;
+    $("data-source").textContent = "טוען פניות מ־Airtable…";
+    try {
+      leads = await loadAirtable(airtableToken);
+      render();
+      $("data-source").textContent = "מקור הנתונים: Airtable · לקריאה בלבד";
+    } catch (error) {
+      $("data-source").textContent = "הטעינה נכשלה. מוצגות הפניות מהטעינה הקודמת.";
+    } finally {
+      loading = button.disabled = $("connection-btn").disabled = false;
+    }
+  }
+
   function init() {
     addOptions($("filter-stage"), L.STAGES, "כל השלבים");
     addOptions($("filter-type"), L.SHOOT_TYPES, "כל הסוגים");
     addOptions(formControl("shootType"), L.SHOOT_TYPES, "בחירה...");
     addOptions(formControl("stage"), L.STAGES);
 
-    if (!storage) $("storage-warning").hidden = false;
-    leads = load();
+    $("connection-form").addEventListener("submit", connect);
+    $("refresh-btn").addEventListener("click", refreshAirtable);
+    $("local-btn").addEventListener("click", function () {
+      $("airtable-token").value = "";
+      $("connection-status").textContent = "";
+      showDashboard("local", load());
+    });
+    $("connection-btn").addEventListener("click", function () {
+      airtableToken = "";
+      leads = [];
+      render();
+      $("dashboard").hidden = true;
+      $("connection").hidden = false;
+      $("airtable-token").focus();
+    });
 
     $("filter-stage").addEventListener("change", renderLeads);
     $("filter-type").addEventListener("change", renderLeads);
